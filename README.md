@@ -10,17 +10,27 @@ A specialized MCP (Model Context Protocol) server providing TypeScript type infe
 - **Real-time Analysis**: Live type checking and diagnostics
 - **Extensible Architecture**: Designed to support multiple typed languages
 
-## Quick Start
+## Installation
+
+### From GitHub (Recommended)
 
 ```bash
-# Install dependencies
+# Install directly from GitHub
+npm install -g github:Coldsewoo/typeref-mcp
+
+# Or with pnpm
+pnpm add -g github:Coldsewoo/typeref-mcp
+```
+
+### From Source
+
+```bash
+# Clone and install
+git clone https://github.com/Coldsewoo/typeref-mcp.git
+cd typeref-mcp
 npm install
-
-# Build the project
 npm run build
-
-# Start the MCP server
-npm start
+npm link
 ```
 
 ## Usage with Claude Code
@@ -31,8 +41,22 @@ Add to your MCP configuration:
 {
   "mcpServers": {
     "typeref": {
+      "command": "typeref-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
+```
+
+Or if installed locally:
+
+```json
+{
+  "mcpServers": {
+    "typeref": {
       "command": "node",
-      "args": ["/path/to/typeref-mcp/dist/index.js"],
+      "args": ["./node_modules/.bin/typeref-mcp"],
       "env": {}
     }
   }
