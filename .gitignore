@@ -51,3 +51,7 @@ test-projects/
 examples/temp/
 *.test.js.map
 *.spec.js.map
+
+
+# misc
+docs
