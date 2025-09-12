@@ -12,8 +12,79 @@ export class MemoryCache implements CacheManager {
     misses: 0,
     evictions: 0,
   };
+  private cleanupInterval: NodeJS.Timeout;
+  private readonly CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
-  constructor(private maxSize: number = 1000, private defaultTTL: number = 10 * 60 * 1000) {}
+  constructor(private maxSize: number = 1000, private defaultTTL: number = 10 * 60 * 1000) {
+    // Start automatic cleanup
+    this.cleanupInterval = setInterval(() => {
+      this.performCleanup();
+    }, this.CLEANUP_INTERVAL);
+  }
+
+  private performCleanup(): void {
+    const now = Date.now();
+    const keysToDelete: string[] = [];
+    let freedEntries = 0;
+
+    // Remove expired entries
+    for (const [key, entry] of this.cache.entries()) {
+      if (now > entry.timestamp + entry.ttl) {
+        keysToDelete.push(key);
+      }
+    }
+
+    for (const key of keysToDelete) {
+      this.cache.delete(key);
+      freedEntries++;
+    }
+
+    // If still over capacity, remove oldest entries
+    if (this.cache.size > this.maxSize * 0.8) { // Keep at 80% capacity
+      this.evictOldestBatch(this.cache.size - Math.floor(this.maxSize * 0.8));
+    }
+
+    if (freedEntries > 0) {
+      console.debug(`Cache cleanup: removed ${freedEntries} expired entries, ${this.cache.size} remaining`);
+    }
+  }
+
+  private evictOldestBatch(count: number): void {
+    const entries = Array.from(this.cache.entries())
+      .sort(([, a], [, b]) => a.timestamp - b.timestamp)
+      .slice(0, count);
+
+    for (const [key] of entries) {
+      this.cache.delete(key);
+      this.stats.evictions++;
+    }
+  }
+
+  // Add pattern-based deletion for project-specific cleanup
+  deleteByPattern(pattern: string): number {
+    const regex = this.createPatternRegex(pattern);
+    const keysToDelete: string[] = [];
+
+    for (const key of this.cache.keys()) {
+      if (regex.test(key)) {
+        keysToDelete.push(key);
+      }
+    }
+
+    for (const key of keysToDelete) {
+      this.cache.delete(key);
+    }
+
+    return keysToDelete.length;
+  }
+
+  // Cleanup method for graceful shutdown
+  destroy(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+    }
+    this.clear();
+  }
 
   get<T>(key: string): T | null {
     const entry = this.cache.get(key);

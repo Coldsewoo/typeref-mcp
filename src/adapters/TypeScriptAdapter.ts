@@ -38,20 +38,140 @@ import {
 
 export class TypeScriptAdapter extends BaseLanguageAdapter {
   private projects = new Map<string, Project>();
+  private projectMemoryUsage = new Map<string, number>();
+  private readonly MEMORY_CLEANUP_INTERVAL = 30 * 60 * 1000; // 30 minutes
+  private readonly MAX_MEMORY_PER_PROJECT = 100 * 1024 * 1024; // 100MB
+  private readonly MAX_IDLE_TIME = 20 * 60 * 1000; // 20 minutes
+  private projectLastAccess = new Map<string, number>();
   
   static readonly CONFIG: LanguageConfig = {
     name: 'typescript',
     fileExtensions: ['.ts', '.tsx'],
     configFiles: ['tsconfig.json'],
-    excludePatterns: ['node_modules/**', '**/*.d.ts', 'dist/**', 'build/**'],
+    excludePatterns: [
+      'node_modules/**', 
+      '**/*.d.ts', 
+      'dist/**', 
+      'build/**',
+      'coverage/**',
+      '.git/**',
+      '**/*.spec.ts',
+      '**/*.test.ts',
+    ],
   };
 
   constructor(cache: CacheManager, watcher: FileWatcher, logger: Logger) {
     super(TypeScriptAdapter.CONFIG, cache, watcher, logger);
+    
+    // Start memory management
+    this.startMemoryManagement();
+  }
+
+  private startMemoryManagement(): void {
+    setInterval(() => {
+      this.performMemoryCleanup();
+    }, this.MEMORY_CLEANUP_INTERVAL);
+    
+    // Monitor memory usage
+    setInterval(() => {
+      this.monitorMemoryUsage();
+    }, 5 * 60 * 1000); // Check every 5 minutes
+  }
+
+  private performMemoryCleanup(): void {
+    const now = Date.now();
+    this.logger.info('Performing memory cleanup...');
+    
+    let cleanedProjects = 0;
+    let freedMemory = 0;
+    
+    for (const [projectPath, project] of this.projects) {
+      const lastAccess = this.projectLastAccess.get(projectPath) || 0;
+      const memoryUsage = this.projectMemoryUsage.get(projectPath) || 0;
+      
+      // Clean up idle projects or those using too much memory
+      if (
+        (now - lastAccess > this.MAX_IDLE_TIME) ||
+        (memoryUsage > this.MAX_MEMORY_PER_PROJECT)
+      ) {
+        this.cleanupProject(projectPath, project);
+        freedMemory += memoryUsage;
+        cleanedProjects++;
+      }
+    }
+    
+    // Clear old cache entries
+    this.cache.clear?.();
+    
+    this.logger.info(`Cleanup completed: ${cleanedProjects} projects cleaned, ~${Math.round(freedMemory / 1024 / 1024)}MB freed`);
+  }
+
+  private cleanupProject(projectPath: string, _project: Project): void {
+    try {
+      // Clear project-specific cache
+      const cachePattern = this.getCacheKey(projectPath, '');
+      this.clearProjectCache(cachePattern);
+      
+      // Remove from memory
+      this.projects.delete(projectPath);
+      this.projectMemoryUsage.delete(projectPath);
+      this.projectLastAccess.delete(projectPath);
+      
+      this.logger.debug(`Cleaned up project: ${projectPath}`);
+    } catch (error) {
+      this.logger.error(`Failed to cleanup project ${projectPath}:`, error);
+    }
+  }
+
+  private clearProjectCache(pattern: string): void {
+    // Clear project-specific cache entries
+    if (this.cache && typeof (this.cache as any).deleteByPattern === 'function') {
+      const deletedCount = (this.cache as any).deleteByPattern(pattern + '*');
+      this.logger.debug(`Cleared ${deletedCount} cache entries for pattern: ${pattern}`);
+    } else {
+      // Fallback: clear all cache if pattern deletion not supported
+      this.cache.clear?.();
+      this.logger.debug('Cleared all cache entries (pattern deletion not supported)');
+    }
+  }
+
+  private monitorMemoryUsage(): void {
+    const memUsage = process.memoryUsage();
+    const totalMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+    
+    this.logger.debug(`Memory usage: ${totalMB}MB heap, ${this.projects.size} projects loaded`);
+    
+    // Estimate memory per project
+    if (this.projects.size > 0) {
+      const avgPerProject = memUsage.heapUsed / this.projects.size;
+      
+      for (const projectPath of this.projects.keys()) {
+        this.projectMemoryUsage.set(projectPath, avgPerProject);
+      }
+    }
+    
+    // Force cleanup if memory is high
+    if (memUsage.heapUsed > 500 * 1024 * 1024) { // 500MB
+      this.logger.warn(`High memory usage detected (${totalMB}MB), forcing cleanup`);
+      this.performMemoryCleanup();
+    }
+  }
+
+  private trackProjectAccess(projectPath: string): void {
+    this.projectLastAccess.set(projectPath, Date.now());
+  }
+
+  // Cleanup method for graceful shutdown
+  cleanup(): void {
+    for (const [projectPath, project] of this.projects) {
+      this.cleanupProject(projectPath, project);
+    }
+    this.logger.info('TypeScript adapter cleanup completed');
   }
 
   async indexProject(projectPath: string, force = false): Promise<ProjectIndex> {
     this.validateProjectPath(projectPath);
+    this.trackProjectAccess(projectPath);
     
     const cacheKey = this.getCacheKey(projectPath, 'index');
     const cached = this.cache.get<ProjectIndex>(cacheKey);
@@ -468,24 +588,80 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
     // Check if tsconfig exists
     try {
       await fs.access(tsconfigPath);
+      
+      // Read and enhance tsconfig with performance optimizations
+      const enhancedConfig = await this.enhanceTsConfig(tsconfigPath);
+      
       return new Project({
         tsConfigFilePath: tsconfigPath,
         skipAddingFilesFromTsConfig: false,
         skipFileDependencyResolution: false,
+        compilerOptions: enhancedConfig,
+        // Performance optimizations
+        useInMemoryFileSystem: false,
       });
     } catch {
       // Create project without tsconfig
-      this.logger.warn(`No tsconfig.json found in ${projectPath}, using default configuration`);
+      this.logger.warn(`No tsconfig.json found in ${projectPath}, using optimized default configuration`);
       return new Project({
         useInMemoryFileSystem: true,
         compilerOptions: {
-          esModuleInterop: true,
-          allowSyntheticDefaultImports: true,
-          strict: true,
-          skipLibCheck: true,
+          ...this.getOptimizedCompilerOptions(),
         },
       });
     }
+  }
+
+  private async enhanceTsConfig(tsconfigPath: string): Promise<any> {
+    try {
+      const content = await fs.readFile(tsconfigPath, 'utf8');
+      const config = JSON.parse(content);
+      
+      // Add performance optimizations to existing config
+      const optimizations = this.getOptimizedCompilerOptions();
+      
+      return {
+        ...config.compilerOptions,
+        ...optimizations,
+        // Preserve user preferences but add optimizations
+        skipLibCheck: config.compilerOptions?.skipLibCheck ?? true,
+        incremental: config.compilerOptions?.incremental ?? true,
+        tsBuildInfoFile: config.compilerOptions?.tsBuildInfoFile ?? '.tsbuildinfo',
+      };
+    } catch (error) {
+      this.logger.warn(`Failed to read tsconfig.json, using default optimizations:`, error);
+      return this.getOptimizedCompilerOptions();
+    }
+  }
+
+  private getOptimizedCompilerOptions(): any {
+    return {
+      // Essential options
+      esModuleInterop: true,
+      allowSyntheticDefaultImports: true,
+      moduleResolution: 'node',
+      
+      // Performance optimizations
+      skipLibCheck: true,           // Skip type checking of declaration files
+      skipDefaultLibCheck: true,    // Skip type checking of default library files
+      incremental: true,            // Enable incremental compilation
+      tsBuildInfoFile: '.tsbuildinfo', // Cache compilation info
+      
+      // Memory optimizations
+      preserveWatchOutput: true,    // Preserve watch output for better performance
+      assumeChangesOnlyAffectDirectDependencies: true,
+      
+      // Exclude common performance bottlenecks
+      exclude: [
+        'node_modules',
+        '**/*.spec.ts',
+        '**/*.test.ts',
+        'dist',
+        'build',
+        '.git',
+        'coverage',
+      ],
+    };
   }
 
   private async buildProjectIndex(project: Project, projectPath: string): Promise<ProjectIndex> {

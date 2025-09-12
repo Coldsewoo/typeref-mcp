@@ -238,6 +238,39 @@ npm test
 npm run test:watch
 ```
 
+## ⚡ Performance Features
+
+TypeRef-MCP includes advanced performance optimizations for handling large TypeScript projects:
+
+### 🚀 Automatic Optimizations
+- **Smart Exclusions**: Automatically excludes `node_modules`, test files, and build directories
+- **Incremental Compilation**: Uses TypeScript's incremental mode with `.tsbuildinfo` caching
+- **Memory Management**: Automatic cleanup of idle projects and memory monitoring
+- **Intelligent Caching**: Multi-level caching with TTL and pattern-based invalidation
+
+### 🔧 Development Mode Features
+Enable development mode for enhanced monitoring and debugging:
+
+```bash
+# Enable development monitoring
+NODE_ENV=development typeref-mcp
+
+# Or with debug output
+DEBUG=typeref:* typeref-mcp
+```
+
+**Development Features:**
+- 📊 Performance metrics every 5 minutes
+- ⚠️ Slow operation warnings (>1s)
+- 🔍 Memory usage tracking
+- 📈 Tool call statistics and timing
+
+### 🧹 Automatic Cleanup
+- **Idle Projects**: Removes unused projects after 20 minutes of inactivity
+- **Memory Limits**: Cleans up projects exceeding 100MB memory usage  
+- **Cache Expiration**: Intelligent cache cleanup every 5 minutes
+- **Graceful Shutdown**: Proper resource cleanup on server stop
+
 ## 🐛 Troubleshooting
 
 <details>
@@ -260,18 +293,21 @@ npm run test:watch
 <details>
 <summary><strong>Type inference not working</strong></summary>
 
-1. **Project indexing**: TypeRef-MCP needs to index your project first
-2. **Large projects**: Initial analysis may take a few seconds
-3. **TypeScript errors**: Fix compilation errors that might block analysis
+1. **Project indexing**: TypeRef-MCP automatically indexes your project on first use
+2. **Large projects**: Initial analysis is optimized but may take a few moments
+3. **TypeScript errors**: The server handles most compilation errors gracefully
 
 </details>
 
 <details>
-<summary><strong>Performance issues</strong></summary>
+<summary><strong>Performance optimization</strong></summary>
 
-1. **Large projects**: Consider excluding `node_modules` in your `tsconfig.json`
-2. **Memory usage**: Restart the MCP server if memory usage grows too high
-3. **Cache issues**: Clear TypeScript cache with `rm -rf .tsbuildinfo`
+TypeRef-MCP handles performance issues automatically with built-in optimizations.
+
+For monitoring performance in development:
+```bash
+DEBUG=typeref:* NODE_ENV=development typeref-mcp
+```
 
 </details>
 

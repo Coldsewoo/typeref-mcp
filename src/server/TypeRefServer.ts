@@ -41,6 +41,12 @@ export class TypeRefServer {
   private watcher: FileWatcher;
   private logger: Logger;
   private config: TypeRefConfig;
+  private performanceMonitor?: {
+    toolCalls: Map<string, { count: number; totalTime: number; lastCalled: number }>;
+    startTime: number;
+    interval?: NodeJS.Timeout;
+  };
+  private readonly isDev = process.env.NODE_ENV === 'development' || process.env.DEBUG === 'typeref:*';
 
   constructor(config: Partial<TypeRefConfig> = {}) {
     // Initialize configuration
@@ -53,6 +59,11 @@ export class TypeRefServer {
       logLevel: LogLevel.Info,
       ...config,
     };
+
+    // Initialize performance monitoring in dev mode only
+    if (this.isDev) {
+      this.initializePerformanceMonitoring();
+    }
 
     // Initialize core services
     this.logger = new ConsoleLogger(this.config.logLevel);
@@ -83,6 +94,71 @@ export class TypeRefServer {
     this.logger.info('TypeRef MCP Server initialized');
   }
 
+  private initializePerformanceMonitoring(): void {
+    this.performanceMonitor = {
+      toolCalls: new Map(),
+      startTime: Date.now(),
+    };
+
+    // Report performance stats every 5 minutes in dev mode
+    this.performanceMonitor.interval = setInterval(() => {
+      this.reportPerformanceStats();
+    }, 5 * 60 * 1000);
+
+    this.logger.info('🔧 Performance monitoring enabled (development mode)');
+  }
+
+  private reportPerformanceStats(): void {
+    if (!this.performanceMonitor) return;
+
+    const uptime = Date.now() - this.performanceMonitor.startTime;
+    const uptimeMinutes = Math.floor(uptime / 60000);
+    
+    this.logger.info(`📊 Performance Report (${uptimeMinutes}m uptime):`);
+    
+    // Tool call statistics
+    if (this.performanceMonitor.toolCalls.size > 0) {
+      this.logger.info('   Tool Call Performance:');
+      for (const [tool, stats] of this.performanceMonitor.toolCalls.entries()) {
+        const avgTime = stats.totalTime / stats.count;
+        const lastCalledAgo = Math.floor((Date.now() - stats.lastCalled) / 1000);
+        this.logger.info(`     ${tool}: ${stats.count} calls, ${avgTime.toFixed(1)}ms avg, last: ${lastCalledAgo}s ago`);
+      }
+    }
+
+    // Memory usage
+    const memUsage = process.memoryUsage();
+    this.logger.info(`   Memory: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB heap`);
+    
+    // Cache statistics
+    if (this.cache && typeof (this.cache as any).getStats === 'function') {
+      const cacheStats = (this.cache as any).getStats();
+      this.logger.info(`   Cache: ${cacheStats.size} entries, ${(cacheStats.hitRate * 100).toFixed(1)}% hit rate`);
+    }
+
+    // Active projects
+    const tsAdapter = this.adapters.get('typescript') as any;
+    if (tsAdapter?.projects?.size) {
+      this.logger.info(`   Active Projects: ${tsAdapter.projects.size}`);
+    }
+  }
+
+  private trackToolCall(toolName: string, duration: number): void {
+    if (!this.performanceMonitor || !this.isDev) return;
+
+    const existing = this.performanceMonitor.toolCalls.get(toolName) || {
+      count: 0,
+      totalTime: 0,
+      lastCalled: 0,
+    };
+
+    existing.count++;
+    existing.totalTime += duration;
+    existing.lastCalled = Date.now();
+
+    this.performanceMonitor.toolCalls.set(toolName, existing);
+  }
+
   private initializeAdapters(): void {
     // Initialize TypeScript adapter
     const tsAdapter = new TypeScriptAdapter(this.cache, this.watcher, this.logger);
@@ -103,8 +179,20 @@ export class TypeRefServer {
       const { name, arguments: args } = request.params;
       this.logger.debug(`Handling tool call: ${name}`);
 
+      const startTime = this.isDev ? Date.now() : 0;
+
       try {
         const result = await this.handleToolCall(name, args || {});
+        
+        // Track performance in dev mode only
+        if (this.isDev) {
+          const duration = Date.now() - startTime;
+          this.trackToolCall(name, duration);
+          if (duration > 1000) { // Log slow calls
+            this.logger.warn(`⚠️  Slow tool call: ${name} took ${duration}ms`);
+          }
+        }
+
         return {
           content: [
             {
@@ -115,6 +203,13 @@ export class TypeRefServer {
         };
       } catch (error) {
         this.logger.error(`Tool call failed for ${name}:`, error);
+        
+        // Track failed calls in dev mode
+        if (this.isDev) {
+          const duration = Date.now() - startTime;
+          this.trackToolCall(`${name}_failed`, duration);
+        }
+
         return {
           content: [
             {
@@ -359,8 +454,20 @@ export class TypeRefServer {
   async stop(): Promise<void> {
     this.logger.info('Stopping TypeRef MCP Server...');
     
+    // Stop performance monitoring
+    if (this.performanceMonitor?.interval) {
+      clearInterval(this.performanceMonitor.interval);
+      if (this.isDev) {
+        this.logger.info('🔧 Performance monitoring stopped');
+        this.reportPerformanceStats(); // Final report
+      }
+    }
+    
     // Cleanup adapters
     for (const adapter of this.adapters.values()) {
+      if (typeof (adapter as any).cleanup === 'function') {
+        (adapter as any).cleanup();
+      }
       await adapter.dispose();
     }
     
@@ -368,7 +475,13 @@ export class TypeRefServer {
     if (this.watcher) {
       this.watcher.dispose();
     }
-    this.cache.clear();
+    
+    // Cleanup cache
+    if (typeof (this.cache as any).destroy === 'function') {
+      (this.cache as any).destroy();
+    } else {
+      this.cache.clear();
+    }
     
     this.logger.info('TypeRef MCP Server stopped');
   }

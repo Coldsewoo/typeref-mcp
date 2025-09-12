@@ -54,7 +54,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Coldsewoo/typeref-mcp.git"
+    "url": "git+https://github.com/Coldsewoo/typeref-mcp.git"
   },
   "license": "MIT",
   "author": "Coldsewoo"
