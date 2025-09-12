@@ -121,10 +121,17 @@ For more information, see: https://github.com/username/typeref-mcp
 async function printVersion() {
   try {
     const { readFile } = await import('fs/promises');
-    const packageJson = JSON.parse(await readFile('package.json', 'utf8'));
+    const { dirname, join } = await import('path');
+    const { fileURLToPath } = await import('url');
+    
+    // Get the directory where this script is located
+    const __dirname = dirname(fileURLToPath(import.meta.url));
+    const packagePath = join(__dirname, '..', 'package.json');
+    
+    const packageJson = JSON.parse(await readFile(packagePath, 'utf8'));
     console.log(`TypeRef-MCP v${packageJson.version}`);
   } catch {
-    console.log('TypeRef-MCP v0.1.1');
+    console.log('TypeRef-MCP v0.1.2');
   }
 }
 

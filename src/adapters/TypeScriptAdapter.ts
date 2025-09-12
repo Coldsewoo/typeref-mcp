@@ -50,7 +50,6 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
     configFiles: ['tsconfig.json'],
     excludePatterns: [
       'node_modules/**', 
-      '**/*.d.ts', 
       'dist/**', 
       'build/**',
       'coverage/**',
@@ -592,15 +591,16 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
       // Read and enhance tsconfig with performance optimizations
       const enhancedConfig = await this.enhanceTsConfig(tsconfigPath);
       
+      this.logger.info(`Creating TypeScript project for: ${projectPath}`);
+      
       return new Project({
         tsConfigFilePath: tsconfigPath,
         skipAddingFilesFromTsConfig: false,
         skipFileDependencyResolution: false,
         compilerOptions: enhancedConfig,
-        // Performance optimizations
         useInMemoryFileSystem: false,
       });
-    } catch {
+    } catch (error) {
       // Create project without tsconfig
       this.logger.warn(`No tsconfig.json found in ${projectPath}, using optimized default configuration`);
       return new Project({
@@ -617,13 +617,10 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
       const content = await fs.readFile(tsconfigPath, 'utf8');
       const config = JSON.parse(content);
       
-      // Add performance optimizations to existing config
-      const optimizations = this.getOptimizedCompilerOptions();
-      
+      // Only add minimal performance optimizations, preserve user config
       return {
         ...config.compilerOptions,
-        ...optimizations,
-        // Preserve user preferences but add optimizations
+        // Only override these for performance
         skipLibCheck: config.compilerOptions?.skipLibCheck ?? true,
         incremental: config.compilerOptions?.incremental ?? true,
         tsBuildInfoFile: config.compilerOptions?.tsBuildInfoFile ?? '.tsbuildinfo',
@@ -651,6 +648,11 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
       preserveWatchOutput: true,    // Preserve watch output for better performance
       assumeChangesOnlyAffectDirectDependencies: true,
       
+      // Handle modern TypeScript features safely
+      target: 'ES2020',
+      module: 'ESNext',
+      allowJs: true,
+      
       // Exclude common performance bottlenecks
       exclude: [
         'node_modules',
@@ -670,34 +672,59 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
     const modules = new Map<string, ModuleInfo>();
     const dependencies = new Map<string, string[]>();
 
-    const sourceFiles = project.getSourceFiles().filter(file => 
+    const allSourceFiles = project.getSourceFiles();
+    const sourceFiles = allSourceFiles.filter(file => 
       this.shouldIncludeFile(file.getFilePath())
     );
 
-    for (const sourceFile of sourceFiles) {
-      // Extract symbols
-      const fileSymbols = this.extractSymbolsFromFile(sourceFile);
-      for (const symbol of fileSymbols) {
-        const existing = symbols.get(symbol.name) || [];
-        symbols.set(symbol.name, [...existing, symbol]);
+    this.logger.info(`Indexing ${sourceFiles.length} TypeScript files (filtered from ${allSourceFiles.length} total)`);
+
+    let processed = 0;
+    const batchSize = 50; // Process files in batches
+
+    for (let i = 0; i < sourceFiles.length; i += batchSize) {
+      const batch = sourceFiles.slice(i, i + batchSize);
+      
+      for (const sourceFile of batch) {
+        try {
+          // Extract symbols
+          const fileSymbols = this.extractSymbolsFromFile(sourceFile);
+          for (const symbol of fileSymbols) {
+            const existing = symbols.get(symbol.name) || [];
+            symbols.set(symbol.name, [...existing, symbol]);
+          }
+
+          // Extract types
+          const fileTypes = this.extractTypesFromFile(sourceFile);
+          for (const type of fileTypes) {
+            types.set(type.name, type);
+          }
+
+          // Extract module info
+          const moduleInfo: ModuleInfo = {
+            path: sourceFile.getFilePath(),
+            exports: this.extractExports(sourceFile),
+            imports: this.extractImports(sourceFile),
+            dependencies: this.extractDependencies(sourceFile),
+          };
+          modules.set(sourceFile.getFilePath(), moduleInfo);
+          dependencies.set(sourceFile.getFilePath(), moduleInfo.dependencies);
+
+          processed++;
+        } catch (error) {
+          this.logger.warn(`Failed to process file ${sourceFile.getFilePath()}: ${error}`);
+          continue;
+        }
       }
 
-      // Extract types
-      const fileTypes = this.extractTypesFromFile(sourceFile);
-      for (const type of fileTypes) {
-        types.set(type.name, type);
+      // Progress logging for large projects
+      if (sourceFiles.length > 100) {
+        const progress = Math.round((processed / sourceFiles.length) * 100);
+        this.logger.info(`Indexing progress: ${processed}/${sourceFiles.length} files (${progress}%)`);
       }
-
-      // Extract module info
-      const moduleInfo: ModuleInfo = {
-        path: sourceFile.getFilePath(),
-        exports: this.extractExports(sourceFile),
-        imports: this.extractImports(sourceFile),
-        dependencies: this.extractDependencies(sourceFile),
-      };
-      modules.set(sourceFile.getFilePath(), moduleInfo);
-      dependencies.set(sourceFile.getFilePath(), moduleInfo.dependencies);
     }
+
+    this.logger.info(`Indexing complete: ${processed} files, ${symbols.size} symbols, ${types.size} types`);
 
     return {
       projectPath,
