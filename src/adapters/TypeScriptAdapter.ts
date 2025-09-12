@@ -862,12 +862,85 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
   private extractExports(sourceFile: SourceFile): ExportInfo[] {
     const exports: ExportInfo[] = [];
 
-    // Named exports
+    // Direct exports (export interface, export class, etc.)
+    sourceFile.getInterfaces().forEach(iface => {
+      if (iface.isExported()) {
+        exports.push({
+          name: iface.getName(),
+          type: 'interface',
+          kind: SymbolKind.Interface,
+          isDefault: false,
+          documentation: this.getNodeDocumentation(iface),
+        });
+      }
+    });
+
+    sourceFile.getClasses().forEach(cls => {
+      if (cls.isExported()) {
+        exports.push({
+          name: cls.getName() || 'anonymous',
+          type: 'class',
+          kind: SymbolKind.Class,
+          isDefault: false,
+          documentation: this.getNodeDocumentation(cls),
+        });
+      }
+    });
+
+    sourceFile.getEnums().forEach(enumDecl => {
+      if (enumDecl.isExported()) {
+        exports.push({
+          name: enumDecl.getName(),
+          type: 'enum',
+          kind: SymbolKind.Enum,
+          isDefault: false,
+          documentation: this.getNodeDocumentation(enumDecl),
+        });
+      }
+    });
+
+    sourceFile.getTypeAliases().forEach(typeAlias => {
+      if (typeAlias.isExported()) {
+        exports.push({
+          name: typeAlias.getName(),
+          type: 'type',
+          kind: SymbolKind.Type,
+          isDefault: false,
+          documentation: this.getNodeDocumentation(typeAlias),
+        });
+      }
+    });
+
+    sourceFile.getVariableDeclarations().forEach(varDecl => {
+      if (varDecl.isExported()) {
+        exports.push({
+          name: varDecl.getName(),
+          type: 'variable',
+          kind: SymbolKind.Variable,
+          isDefault: false,
+          documentation: this.getNodeDocumentation(varDecl),
+        });
+      }
+    });
+
+    sourceFile.getFunctions().forEach(func => {
+      if (func.isExported()) {
+        exports.push({
+          name: func.getName() || 'anonymous',
+          type: 'function',
+          kind: SymbolKind.Function,
+          isDefault: false,
+          documentation: this.getNodeDocumentation(func),
+        });
+      }
+    });
+
+    // Named exports (export { foo })
     sourceFile.getExportDeclarations().forEach(exportDecl => {
       exportDecl.getNamedExports().forEach(namedExport => {
         exports.push({
           name: namedExport.getName(),
-          type: 'unknown', // Could be improved with type analysis
+          type: 'unknown',
           kind: SymbolKind.Variable,
           isDefault: false,
           documentation: this.getNodeDocumentation(namedExport),
@@ -1088,18 +1161,86 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
     return [];
   }
 
-  private getLocalSymbolsInScope(_sourceFile: SourceFile, _position: number): SymbolInfo[] {
-    // Implementation for getting local symbols in scope
-    return [];
+  private getLocalSymbolsInScope(sourceFile: SourceFile, position: number): SymbolInfo[] {
+    const symbols: SymbolInfo[] = [];
+    
+    // Get the node at the position
+    const node = sourceFile.getDescendantAtPos(position);
+    if (!node) return symbols;
+    
+    // Get all variable declarations in the file (simplified approach)
+    sourceFile.getVariableDeclarations().forEach(varDecl => {
+      symbols.push({
+        name: varDecl.getName(),
+        kind: SymbolKind.Variable,
+        type: varDecl.getType().getText(),
+        location: this.getSourceLocation(varDecl),
+        isExported: varDecl.isExported(),
+        documentation: this.getNodeDocumentation(varDecl),
+      });
+    });
+    
+    // Get function parameters if we're inside a function
+    const functionNode = node.getFirstAncestorByKind(SyntaxKind.FunctionDeclaration) || 
+                        node.getFirstAncestorByKind(SyntaxKind.MethodDeclaration) ||
+                        node.getFirstAncestorByKind(SyntaxKind.ArrowFunction);
+    
+    if (functionNode && 'getParameters' in functionNode) {
+      (functionNode as any).getParameters().forEach((param: any) => {
+        symbols.push({
+          name: param.getName(),
+          kind: SymbolKind.Parameter,
+          type: param.getType().getText(),
+          location: this.getSourceLocation(param),
+          isExported: false,
+          documentation: this.getNodeDocumentation(param),
+        });
+      });
+    }
+    
+    return symbols;
   }
 
-  private getImportedSymbols(_sourceFile: SourceFile): SymbolInfo[] {
-    // Implementation for getting imported symbols
-    return [];
+  private getImportedSymbols(sourceFile: SourceFile): SymbolInfo[] {
+    const symbols: SymbolInfo[] = [];
+    
+    // Get imported symbols from import statements
+    sourceFile.getImportDeclarations().forEach(importDecl => {
+      const namedImports = importDecl.getNamedImports();
+      namedImports.forEach(namedImport => {
+        symbols.push({
+          name: namedImport.getName(),
+          kind: SymbolKind.Variable,
+          type: 'imported',
+          location: this.getSourceLocation(namedImport),
+          isExported: false,
+          documentation: this.getNodeDocumentation(namedImport),
+        });
+      });
+    });
+    
+    return symbols;
   }
 
   private getGlobalSymbols(_sourceFile: SourceFile): SymbolInfo[] {
-    // Implementation for getting global symbols
-    return [];
+    // Return some common global symbols
+    return [
+      {
+        name: 'console',
+        kind: SymbolKind.Variable,
+        type: 'Console',
+        location: { filePath: 'global', line: 0, column: 0 },
+        isExported: false,
+        documentation: 'Global console object',
+      },
+      {
+        name: 'Promise',
+        kind: SymbolKind.Class,
+        type: 'PromiseConstructor',
+        location: { filePath: 'global', line: 0, column: 0 },
+        isExported: false,
+        documentation: 'Global Promise constructor',
+      }
+    ];
   }
 }

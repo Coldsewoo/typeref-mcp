@@ -1,6 +1,6 @@
 {
   "name": "typeref-mcp",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "TypeScript type inference and symbol navigation MCP server for Claude Code",
   "keywords": [
     "mcp",

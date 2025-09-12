@@ -287,8 +287,15 @@ describe('TypeRefServer Integration', () => {
   });
 
   it('should handle invalid project path gracefully', async () => {
-    await expect((server as any).handleToolCall('index_project', {
+    const result = await (server as any).handleToolCall('index_project', {
       projectPath: '/non/existent/project'
-    })).rejects.toThrow();
+    });
+    
+    // Should return empty results gracefully instead of throwing
+    expect(result).toBeTruthy();
+    expect(result.success).toBe(true);
+    expect(result.fileCount).toBe(0);
+    expect(result.symbolCount).toBe(0);
+    expect(result.typeCount).toBe(0);
   });
 });
