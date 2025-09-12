@@ -42,7 +42,7 @@ async function main() {
         break;
       case '--version':
       case '-v':
-        printVersion();
+        await printVersion();
         process.exit(0);
         break;
     }
@@ -118,15 +118,18 @@ For more information, see: https://github.com/username/typeref-mcp
 `);
 }
 
-function printVersion() {
-  // In a real implementation, you'd import from package.json
-  console.log('TypeRef-MCP v0.1.0');
+async function printVersion() {
+  try {
+    const { readFile } = await import('fs/promises');
+    const packageJson = JSON.parse(await readFile('package.json', 'utf8'));
+    console.log(`TypeRef-MCP v${packageJson.version}`);
+  } catch {
+    console.log('TypeRef-MCP v0.1.1');
+  }
 }
 
-// Start the server if this file is run directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((error) => {
-    console.error('Fatal error:', error);
-    process.exit(1);
-  });
-}
+// Start the server
+main().catch((error) => {
+  console.error('Fatal error:', error);
+  process.exit(1);
+});
