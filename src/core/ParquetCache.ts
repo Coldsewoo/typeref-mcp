@@ -46,6 +46,13 @@ export class ParquetCache {
    * Initialize project structure on first use
    */
   async initializeProjectStructure(projectPath: string): Promise<void> {
+    // Validate that project path exists and is accessible
+    try {
+      await fs.access(projectPath);
+    } catch (error) {
+      throw new Error(`Project path does not exist or is not accessible: ${projectPath}`);
+    }
+
     const typerefDir = path.join(projectPath, this.CACHE_DIR);
     
     // Create directory structure

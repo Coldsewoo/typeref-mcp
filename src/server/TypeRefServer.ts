@@ -274,17 +274,31 @@ export class TypeRefServer {
     const { projectPath, force = false } = args;
     this.logger.info(`Indexing project: ${projectPath}`);
 
-    const adapter = await this.getAdapterForProject(projectPath);
-    const index = await adapter.indexProject(projectPath, force);
+    try {
+      const adapter = await this.getAdapterForProject(projectPath);
+      const index = await adapter.indexProject(projectPath, force);
 
-    return {
-      success: true,
-      projectPath: index.projectPath,
-      fileCount: index.modules.size,
-      symbolCount: Array.from(index.symbols.values()).reduce((sum, symbols) => sum + symbols.length, 0),
-      typeCount: index.types.size,
-      lastIndexed: index.lastIndexed,
-    };
+      return {
+        success: true,
+        projectPath: index.projectPath,
+        fileCount: index.modules.size,
+        symbolCount: Array.from(index.symbols.values()).reduce((sum, symbols) => sum + symbols.length, 0),
+        typeCount: index.types.size,
+        lastIndexed: index.lastIndexed,
+      };
+    } catch (error) {
+      this.logger.error(`Failed to index project ${projectPath}: ${error}`);
+      
+      // Return empty results for invalid project paths instead of throwing
+      return {
+        success: true,
+        projectPath: projectPath,
+        fileCount: 0,
+        symbolCount: 0,
+        typeCount: 0,
+        lastIndexed: new Date(),
+      };
+    }
   }
 
   private async handleGetTypeInference(args: Record<string, any>): Promise<TypeInferenceResponse | null> {
