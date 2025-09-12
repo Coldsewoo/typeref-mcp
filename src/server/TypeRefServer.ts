@@ -262,6 +262,9 @@ export class TypeRefServer {
       case 'batch_type_analysis':
         return this.handleBatchTypeAnalysis(args);
 
+      case 'clear_project_cache':
+        return this.handleClearProjectCache(args);
+
       default:
         throw new Error(`Unknown tool: ${toolName}`);
     }
@@ -430,6 +433,24 @@ export class TypeRefServer {
     }
 
     return { results };
+  }
+
+  private async handleClearProjectCache(args: Record<string, any>) {
+    const { projectPath } = args;
+    this.logger.debug(`Clearing cache for project: ${projectPath}`);
+
+    try {
+      const adapter = this.getAdapterForProject(projectPath);
+      if (typeof (adapter as any).clearProjectDiskCache === 'function') {
+        await (adapter as any).clearProjectDiskCache(projectPath);
+        return `Cache cleared for project: ${projectPath}. Next indexing will rebuild from scratch.`;
+      } else {
+        throw new Error('Cache clearing not supported by this adapter');
+      }
+    } catch (error) {
+      this.logger.error(`Failed to clear cache for ${projectPath}:`, error);
+      throw new Error(`Failed to clear cache: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   private getAdapterForProject(_projectPath: string): LanguageAdapter {

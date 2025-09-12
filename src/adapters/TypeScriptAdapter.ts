@@ -9,6 +9,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 
 import { BaseLanguageAdapter } from '../core/BaseLanguageAdapter.js';
+import { DiskCache } from '../core/DiskCache.js';
 import {
   CacheManager,
   FileWatcher,
@@ -43,6 +44,7 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
   private readonly MAX_MEMORY_PER_PROJECT = 100 * 1024 * 1024; // 100MB
   private readonly MAX_IDLE_TIME = 20 * 60 * 1000; // 20 minutes
   private projectLastAccess = new Map<string, number>();
+  private diskCache: DiskCache;
   
   static readonly CONFIG: LanguageConfig = {
     name: 'typescript',
@@ -57,6 +59,9 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
 
   constructor(cache: CacheManager, watcher: FileWatcher, logger: Logger) {
     super(TypeScriptAdapter.CONFIG, cache, watcher, logger);
+    
+    // Initialize disk cache
+    this.diskCache = new DiskCache(logger);
     
     // Start memory management
     this.startMemoryManagement();
@@ -164,17 +169,61 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
     this.logger.info('TypeScript adapter cleanup completed');
   }
 
+  // Clear disk cache for a project
+  async clearProjectDiskCache(projectPath: string): Promise<void> {
+    await this.diskCache.clearProjectCache(projectPath);
+  }
+
+  // Ensure project is loaded in memory, auto-load from disk cache if available
+  private async ensureProjectLoaded(projectPath: string): Promise<void> {
+    // If project already in memory, nothing to do
+    if (this.projects.has(projectPath) && this.getProjectIndex(projectPath)) {
+      return;
+    }
+
+    // Try to load from disk cache
+    const isCacheValid = await this.diskCache.isCacheValid(projectPath);
+    if (isCacheValid) {
+      const cachedIndex = await this.diskCache.loadProjectIndex(projectPath);
+      if (cachedIndex) {
+        this.logger.info(`Auto-loaded cached index from disk: ${projectPath} (${cachedIndex.symbols.size} symbols, ${cachedIndex.types.size} types)`);
+        this.setProjectIndex(projectPath, cachedIndex);
+        
+        // Also store in memory cache for fast access
+        const cacheKey = this.getCacheKey(projectPath, 'index');
+        this.cache.set(cacheKey, cachedIndex, 10 * 60 * 1000);
+        
+        // Re-create ts-morph project for operations
+        const project = await this.createProject(projectPath);
+        this.projects.set(projectPath, project);
+        return;
+      }
+    }
+
+    // If we get here, no valid cache exists - user needs to index
+    this.logger.info(`No valid cache found for ${projectPath}. Project needs to be indexed.`);
+  }
+
   async indexProject(projectPath: string, force = false): Promise<ProjectIndex> {
     this.validateProjectPath(projectPath);
     this.trackProjectAccess(projectPath);
     
-    const cacheKey = this.getCacheKey(projectPath, 'index');
-    const cached = this.cache.get<ProjectIndex>(cacheKey);
-    
-    if (cached && !force) {
-      this.logger.info(`Using cached index for project: ${projectPath}`);
-      this.setProjectIndex(projectPath, cached);
-      return cached;
+    // First try disk cache if not forced
+    if (!force) {
+      const isCacheValid = await this.diskCache.isCacheValid(projectPath);
+      if (isCacheValid) {
+        const cachedIndex = await this.diskCache.loadProjectIndex(projectPath);
+        if (cachedIndex) {
+          this.logger.info(`Loaded cached index from disk: ${projectPath} (${cachedIndex.symbols.size} symbols, ${cachedIndex.types.size} types)`);
+          this.setProjectIndex(projectPath, cachedIndex);
+          
+          // Also store in memory cache for fast access
+          const cacheKey = this.getCacheKey(projectPath, 'index');
+          this.cache.set(cacheKey, cachedIndex, 10 * 60 * 1000);
+          
+          return cachedIndex;
+        }
+      }
     }
 
     this.logger.info(`Indexing TypeScript project: ${projectPath}`);
@@ -187,11 +236,15 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
       // Build project index
       const index = await this.buildProjectIndex(project, projectPath);
       
-      // Cache and store
-      this.cache.set(cacheKey, index, 10 * 60 * 1000); // 10 minutes TTL
+      // Save to disk cache
+      await this.diskCache.saveProjectIndex(index);
+      
+      // Also cache in memory for fast access
+      const cacheKey = this.getCacheKey(projectPath, 'index');
+      this.cache.set(cacheKey, index, 10 * 60 * 1000);
       this.setProjectIndex(projectPath, index);
       
-      this.logger.info(`Indexed ${index.symbols.size} symbols and ${index.types.size} types`);
+      this.logger.info(`Indexed and cached ${index.symbols.size} symbols and ${index.types.size} types`);
       return index;
       
     } catch (error) {
@@ -207,6 +260,9 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
   ): Promise<TypeInferenceResult | null> {
     this.validateProjectPath(projectPath);
     
+    // Auto-load from disk cache if project not in memory
+    await this.ensureProjectLoaded(projectPath);
+    
     const cacheKey = this.getCacheKey(projectPath, 'type-inference', filePath, position.toString());
     const cached = this.cache.get<TypeInferenceResult>(cacheKey);
     
@@ -217,7 +273,7 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
     try {
       const project = this.projects.get(projectPath);
       if (!project) {
-        throw new Error(`Project not indexed: ${projectPath}`);
+        throw new Error(`Project not indexed: ${projectPath}. Please run index_project first.`);
       }
 
       const sourceFile = project.getSourceFile(filePath);
@@ -266,6 +322,8 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
     contextFile?: string
   ): Promise<TypeInfo | null> {
     this.validateProjectPath(projectPath);
+    
+    await this.ensureProjectLoaded(projectPath);
     
     const cacheKey = this.getCacheKey(projectPath, 'type-definition', typeName, contextFile || '');
     const cached = this.cache.get<TypeInfo>(cacheKey);
@@ -334,6 +392,8 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
   ): Promise<SymbolInfo[]> {
     this.validateProjectPath(projectPath);
     
+    await this.ensureProjectLoaded(projectPath);
+    
     const index = this.getProjectIndex(projectPath);
     if (!index) {
       throw new Error(`Project not indexed: ${projectPath}`);
@@ -371,6 +431,8 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
     projectPath: string
   ): Promise<ReferenceInfo[]> {
     this.validateProjectPath(projectPath);
+    
+    await this.ensureProjectLoaded(projectPath);
     
     const cacheKey = this.getCacheKey(projectPath, 'references', symbolName, filePath);
     const cached = this.cache.get<ReferenceInfo[]>(cacheKey);
@@ -422,6 +484,8 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
   ): Promise<SymbolInfo[]> {
     this.validateProjectPath(projectPath);
     
+    await this.ensureProjectLoaded(projectPath);
+    
     const cacheKey = this.getCacheKey(projectPath, 'available-symbols', filePath, position.toString());
     const cached = this.cache.get<SymbolInfo[]>(cacheKey);
     
@@ -469,6 +533,8 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
   ): Promise<ModuleInfo | null> {
     this.validateProjectPath(projectPath);
     
+    await this.ensureProjectLoaded(projectPath);
+    
     const cacheKey = this.getCacheKey(projectPath, 'module-info', modulePath);
     const cached = this.cache.get<ModuleInfo>(cacheKey);
     
@@ -509,6 +575,8 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
   ): Promise<TypeInfo[]> {
     this.validateProjectPath(projectPath);
     
+    await this.ensureProjectLoaded(projectPath);
+    
     const index = this.getProjectIndex(projectPath);
     if (!index) {
       throw new Error(`Project not indexed: ${projectPath}`);
@@ -544,6 +612,8 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
     projectPath: string
   ): Promise<DiagnosticInfo[]> {
     this.validateProjectPath(projectPath);
+    
+    await this.ensureProjectLoaded(projectPath);
     
     try {
       const project = this.projects.get(projectPath);

@@ -245,5 +245,21 @@ export const TOOLS = [
       },
       required: ['requests', 'projectPath']
     }
+  },
+  
+  // Cache management tool
+  {
+    name: 'clear_project_cache',
+    description: 'Clear the disk cache for a specific project to force re-indexing',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        projectPath: {
+          type: 'string',
+          description: 'Absolute path to the TypeScript project root directory',
+        },
+      },
+      required: ['projectPath'],
+    }
   }
 ] as const;
