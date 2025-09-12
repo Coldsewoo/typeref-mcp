@@ -9,7 +9,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 
 import { BaseLanguageAdapter } from '../core/BaseLanguageAdapter.js';
-import { DiskCache } from '../core/DiskCache.js';
+import { ParquetCache } from '../core/ParquetCache.js';
 import {
   CacheManager,
   FileWatcher,
@@ -44,7 +44,7 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
   private readonly MAX_MEMORY_PER_PROJECT = 100 * 1024 * 1024; // 100MB
   private readonly MAX_IDLE_TIME = 20 * 60 * 1000; // 20 minutes
   private projectLastAccess = new Map<string, number>();
-  private diskCache: DiskCache;
+  private parquetCache: ParquetCache;
   
   static readonly CONFIG: LanguageConfig = {
     name: 'typescript',
@@ -60,8 +60,8 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
   constructor(cache: CacheManager, watcher: FileWatcher, logger: Logger) {
     super(TypeScriptAdapter.CONFIG, cache, watcher, logger);
     
-    // Initialize disk cache
-    this.diskCache = new DiskCache(logger);
+    // Initialize Parquet cache
+    this.parquetCache = new ParquetCache(logger);
     
     // Start memory management
     this.startMemoryManagement();
@@ -171,7 +171,7 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
 
   // Clear disk cache for a project
   async clearProjectDiskCache(projectPath: string): Promise<void> {
-    await this.diskCache.clearProjectCache(projectPath);
+    await this.parquetCache.clearProjectCache(projectPath);
   }
 
   // Ensure project is loaded in memory, auto-load from disk cache if available
@@ -181,12 +181,12 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
       return;
     }
 
-    // Try to load from disk cache
-    const isCacheValid = await this.diskCache.isCacheValid(projectPath);
+    // Try to load from Parquet cache
+    const isCacheValid = await this.parquetCache.isCacheValid(projectPath);
     if (isCacheValid) {
-      const cachedIndex = await this.diskCache.loadProjectIndex(projectPath);
+      const cachedIndex = await this.parquetCache.loadProjectIndex(projectPath);
       if (cachedIndex) {
-        this.logger.info(`Auto-loaded cached index from disk: ${projectPath} (${cachedIndex.symbols.size} symbols, ${cachedIndex.types.size} types)`);
+        this.logger.info(`Auto-loaded cached index from Parquet files: ${projectPath} (${cachedIndex.symbols.size} symbols, ${cachedIndex.types.size} types)`);
         this.setProjectIndex(projectPath, cachedIndex);
         
         // Also store in memory cache for fast access
@@ -208,13 +208,13 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
     this.validateProjectPath(projectPath);
     this.trackProjectAccess(projectPath);
     
-    // First try disk cache if not forced
+    // First try Parquet cache if not forced
     if (!force) {
-      const isCacheValid = await this.diskCache.isCacheValid(projectPath);
+      const isCacheValid = await this.parquetCache.isCacheValid(projectPath);
       if (isCacheValid) {
-        const cachedIndex = await this.diskCache.loadProjectIndex(projectPath);
+        const cachedIndex = await this.parquetCache.loadProjectIndex(projectPath);
         if (cachedIndex) {
-          this.logger.info(`Loaded cached index from disk: ${projectPath} (${cachedIndex.symbols.size} symbols, ${cachedIndex.types.size} types)`);
+          this.logger.info(`Loaded cached index from Parquet files: ${projectPath} (${cachedIndex.symbols.size} symbols, ${cachedIndex.types.size} types)`);
           this.setProjectIndex(projectPath, cachedIndex);
           
           // Also store in memory cache for fast access
@@ -236,8 +236,8 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
       // Build project index
       const index = await this.buildProjectIndex(project, projectPath);
       
-      // Save to disk cache
-      await this.diskCache.saveProjectIndex(index);
+      // Save to Parquet cache
+      await this.parquetCache.saveProjectIndex(index);
       
       // Also cache in memory for fast access
       const cacheKey = this.getCacheKey(projectPath, 'index');

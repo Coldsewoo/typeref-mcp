@@ -14,6 +14,15 @@ importers:
       chokidar:
         specifier: ^3.6.0
         version: 3.6.0
+      hyparquet:
+        specifier: ^1.17.8
+        version: 1.17.8
+      hyparquet-writer:
+        specifier: ^0.6.1
+        version: 0.6.1
+      hysnappy:
+        specifier: ^1.0.0
+        version: 1.0.0
       ts-morph:
         specifier: ^21.0.0
         version: 21.0.1
@@ -906,6 +915,18 @@ packages:
   human-signals@5.0.0:
     resolution: {integrity: sha512-AXcZb6vzzrFAUE61HnN4mpLqd/cSIwNQjtNWR0euPm6y0iqx3G4gOXaIDdtdDwZmhwe82LA6+zinmW4UBWVePQ==}
     engines: {node: '>=16.17.0'}
+
+  hyparquet-writer@0.6.1:
+    resolution: {integrity: sha512-llpI/BgEq/GvasIz0gGku3JihyfA6ZH25JjHm/NMa5dU12EU4spINpwAdbNFQPPqGz6gL+rXorUSZDrHpHGvRw==}
+
+  hyparquet@1.17.1:
+    resolution: {integrity: sha512-79NqDEkWF3VHbjiUuefexuZLtiwD/j43eSc7kKbrcI8f4V8owLBw6P8Eg6k0VaCeB0KpmJVDW3ZewlsW18h8fQ==}
+
+  hyparquet@1.17.8:
+    resolution: {integrity: sha512-6gJdWv4/YSepyb9khqCvEjBE5qllE1K/WgmVtmYoYAhAjRYxJOl0+idyqClLqkEoWSA5LJUu0Uk0MzdE3w51lw==}
+
+  hysnappy@1.0.0:
+    resolution: {integrity: sha512-MNrC4NfwDGPb889O6gIfEtbvEZCSWUsSEhsz4Oq2FRcpGtXHfeVz3KciSPp5Pnnz1NjFMgDQNfxdJozymJEDDA==}
 
   iconv-lite@0.7.0:
     resolution: {integrity: sha512-cf6L2Ds3h57VVmkZe+Pn+5APsT7FpqJtEhhieDCvrE2MK5Qk9MyffgQyuxQTm6BChfeZNtcOLHp9IcWRVcIcBQ==}
@@ -2239,6 +2260,16 @@ snapshots:
       toidentifier: 1.0.1
 
   human-signals@5.0.0: {}
+
+  hyparquet-writer@0.6.1:
+    dependencies:
+      hyparquet: 1.17.1
+
+  hyparquet@1.17.1: {}
+
+  hyparquet@1.17.8: {}
+
+  hysnappy@1.0.0: {}
 
   iconv-lite@0.7.0:
     dependencies:
