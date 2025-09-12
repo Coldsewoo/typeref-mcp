@@ -143,6 +143,7 @@ export enum SymbolKind {
 export enum TypeKind {
   Primitive = 'primitive',
   Object = 'object',
+  Interface = 'interface',
   Array = 'array',
   Function = 'function',
   Union = 'union',
@@ -197,13 +198,14 @@ export interface SymbolNavigationResponse {
 }
 
 export interface ModuleAnalysisResponse {
-  module: string;
+  path: string;
   exports: ExportInfo[];
   imports: ImportInfo[];
   dependencies: string[];
 }
 
 export interface ProjectAnalysisResponse {
+  success: boolean;
   projectPath: string;
   fileCount: number;
   symbolCount: number;

@@ -97,7 +97,9 @@ export abstract class BaseLanguageAdapter implements LanguageAdapter {
   ): Promise<DiagnosticInfo[]>;
 
   async dispose(): Promise<void> {
-    this.logger.info(`Disposing ${this.config.name} adapter`);
+    if (this.logger && this.logger.info) {
+      this.logger.info(`Disposing ${this.config.name} adapter`);
+    }
     
     // Stop file watchers
     if (this.watcher) {

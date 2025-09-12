@@ -274,12 +274,11 @@ export class TypeRefServer {
     const { projectPath, force = false } = args;
     this.logger.info(`Indexing project: ${projectPath}`);
 
-    const adapter = this.getAdapterForProject(projectPath);
-    await adapter.initialize(projectPath);
-    
+    const adapter = await this.getAdapterForProject(projectPath);
     const index = await adapter.indexProject(projectPath, force);
 
     return {
+      success: true,
       projectPath: index.projectPath,
       fileCount: index.modules.size,
       symbolCount: Array.from(index.symbols.values()).reduce((sum, symbols) => sum + symbols.length, 0),
@@ -292,7 +291,7 @@ export class TypeRefServer {
     const { filePath, position, projectPath } = args;
     this.logger.debug(`Type inference: ${filePath}:${position}`);
 
-    const adapter = this.getAdapterForProject(projectPath);
+    const adapter = await this.getAdapterForProject(projectPath);
     const result = await adapter.getTypeInference(filePath, position, projectPath);
 
     if (!result) {
@@ -313,7 +312,7 @@ export class TypeRefServer {
     const { typeName, projectPath, contextFile } = args;
     this.logger.debug(`Type definition: ${typeName}`);
 
-    const adapter = this.getAdapterForProject(projectPath);
+    const adapter = await this.getAdapterForProject(projectPath);
     const typeInfo = await adapter.getTypeDefinition(typeName, projectPath, contextFile);
 
     return typeInfo;
@@ -323,17 +322,17 @@ export class TypeRefServer {
     const { symbolName, projectPath, ...options } = args;
     this.logger.debug(`Find symbol: ${symbolName}`);
 
-    const adapter = this.getAdapterForProject(projectPath);
+    const adapter = await this.getAdapterForProject(projectPath);
     const symbols = await adapter.findSymbol(symbolName, projectPath, { query: symbolName, ...options });
 
-    return { symbols };
+    return symbols;
   }
 
   private async handleFindReferences(args: Record<string, any>): Promise<SymbolNavigationResponse> {
     const { symbolName, filePath, projectPath } = args;
     this.logger.debug(`Find references: ${symbolName}`);
 
-    const adapter = this.getAdapterForProject(projectPath);
+    const adapter = await this.getAdapterForProject(projectPath);
     const references = await adapter.findReferences(symbolName, filePath, projectPath);
     
     // Get symbol type information
@@ -356,17 +355,17 @@ export class TypeRefServer {
     const { filePath, position, projectPath } = args;
     this.logger.debug(`Available symbols: ${filePath}:${position}`);
 
-    const adapter = this.getAdapterForProject(projectPath);
+    const adapter = await this.getAdapterForProject(projectPath);
     const symbols = await adapter.getAvailableSymbols(filePath, position, projectPath);
 
-    return { symbols };
+    return symbols;
   }
 
   private async handleGetModuleInfo(args: Record<string, any>): Promise<ModuleAnalysisResponse | null> {
     const { modulePath, projectPath } = args;
     this.logger.debug(`Module info: ${modulePath}`);
 
-    const adapter = this.getAdapterForProject(projectPath);
+    const adapter = await this.getAdapterForProject(projectPath);
     const moduleInfo = await adapter.getModuleInfo(modulePath, projectPath);
 
     if (!moduleInfo) {
@@ -374,7 +373,7 @@ export class TypeRefServer {
     }
 
     return {
-      module: moduleInfo.path,
+      path: moduleInfo.path,
       exports: moduleInfo.exports,
       imports: moduleInfo.imports,
       dependencies: moduleInfo.dependencies,
@@ -385,20 +384,20 @@ export class TypeRefServer {
     const { query, projectPath, ...options } = args;
     this.logger.debug(`Search types: ${query}`);
 
-    const adapter = this.getAdapterForProject(projectPath);
-    const types = await adapter.searchTypes(options as any, projectPath);
+    const adapter = await this.getAdapterForProject(projectPath);
+    const types = await adapter.searchTypes({ query, ...options } as any, projectPath);
 
-    return { types };
+    return types;
   }
 
   private async handleGetDiagnostics(args: Record<string, any>) {
     const { filePath, projectPath } = args;
     this.logger.debug(`Diagnostics: ${filePath}`);
 
-    const adapter = this.getAdapterForProject(projectPath);
+    const adapter = await this.getAdapterForProject(projectPath);
     const diagnostics = await adapter.getDiagnostics(filePath, projectPath);
 
-    return { diagnostics };
+    return diagnostics;
   }
 
   private async handleBatchTypeAnalysis(args: Record<string, any>) {
@@ -440,7 +439,7 @@ export class TypeRefServer {
     this.logger.debug(`Clearing cache for project: ${projectPath}`);
 
     try {
-      const adapter = this.getAdapterForProject(projectPath);
+      const adapter = await this.getAdapterForProject(projectPath);
       if (typeof (adapter as any).clearProjectDiskCache === 'function') {
         await (adapter as any).clearProjectDiskCache(projectPath);
         return `Cache cleared for project: ${projectPath}. Next indexing will rebuild from scratch.`;
@@ -453,13 +452,19 @@ export class TypeRefServer {
     }
   }
 
-  private getAdapterForProject(_projectPath: string): LanguageAdapter {
+  private async getAdapterForProject(projectPath: string): Promise<LanguageAdapter> {
     // For now, always use TypeScript adapter
     // In the future, this could detect project type based on files
     const adapter = this.adapters.get('typescript');
     if (!adapter) {
       throw new Error('No TypeScript adapter available');
     }
+    
+    // Initialize adapter for this project if not already initialized
+    if (!(adapter as any).isInitialized) {
+      await adapter.initialize(projectPath);
+    }
+    
     return adapter;
   }
 

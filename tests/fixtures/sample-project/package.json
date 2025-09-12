@@ -1,0 +1,9 @@
+{
+  "name": "test-project",
+  "version": "1.0.0",
+  "description": "Test project for TypeRef MCP",
+  "main": "src/index.ts",
+  "dependencies": {
+    "typescript": "^5.0.0"
+  }
+}

@@ -583,7 +583,7 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
     }
 
     const results: TypeInfo[] = [];
-    const query = options.query.toLowerCase();
+    const query = (options.query || '').toLowerCase();
 
     for (const [typeName, typeInfo] of index.types) {
       // Match by name
@@ -782,7 +782,7 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
   private extractInterfaceInfo(node: any): TypeInfo {
     return {
       name: node.getName(),
-      kind: TypeKind.Object,
+      kind: TypeKind.Interface,
       properties: node.getProperties().map((prop: any) => this.extractPropertyInfo(prop)),
       methods: node.getMethods().map((method: any) => this.extractMethodInfo(method)),
       extends: node.getExtends().map((ext: any) => ext.getText()),
