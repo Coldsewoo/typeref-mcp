@@ -7,8 +7,10 @@ import { LogLevel } from '../src/interfaces.js';
 describe('TypeRefServer Integration', () => {
   let server: TypeRefServer;
   let testProjectPath: string;
+  let skipCacheCleanup = false;
 
   beforeEach(async () => {
+    skipCacheCleanup = false;
     server = new TypeRefServer({
       logLevel: LogLevel.Error, // Quiet during tests
       enableWatcher: false,
@@ -27,12 +29,14 @@ describe('TypeRefServer Integration', () => {
   afterEach(async () => {
     await server.stop();
     
-    // Clean up cache files
-    const cacheDir = path.join(testProjectPath, '.typeref');
-    try {
-      await fs.rm(cacheDir, { recursive: true, force: true });
-    } catch (error) {
-      // Ignore cleanup errors
+    // Clean up cache files unless explicitly skipped
+    if (!skipCacheCleanup) {
+      const cacheDir = path.join(testProjectPath, '.typeref');
+      try {
+        await fs.rm(cacheDir, { recursive: true, force: true });
+      } catch (error) {
+        // Ignore cleanup errors
+      }
     }
   });
 
@@ -255,6 +259,9 @@ describe('TypeRefServer Integration', () => {
   });
 
   it('should auto-load from cache after restart simulation', async () => {
+    // Skip cache cleanup for this test so it persists across server restart
+    skipCacheCleanup = true;
+    
     // First index the project
     const indexResult = await (server as any).handleToolCall('index_project', {
       projectPath: testProjectPath,
@@ -262,8 +269,10 @@ describe('TypeRefServer Integration', () => {
     });
     expect(indexResult.success).toBe(true);
 
-    // Stop and restart server to simulate restart
+    // Stop server but don't clean up cache yet (handled by skipCacheCleanup flag)
     await server.stop();
+    
+    // Restart server to simulate restart
     server = new TypeRefServer({
       logLevel: LogLevel.Error,
       enableWatcher: false,
@@ -280,6 +289,15 @@ describe('TypeRefServer Integration', () => {
     expect(Array.isArray(result)).toBe(true);
     expect(result.length).toBeGreaterThan(0);
     expect(result[0].name).toBe('User');
+    
+    // Clean up cache manually for this test
+    const cacheDir = path.join(testProjectPath, '.typeref');
+    try {
+      await fs.rm(cacheDir, { recursive: true, force: true });
+    } catch (error) {
+      // Ignore cleanup errors
+    }
+    skipCacheCleanup = false; // Reset for next test
   });
 
   it('should handle unknown tool gracefully', async () => {

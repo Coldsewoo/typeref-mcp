@@ -204,10 +204,10 @@ ignored_paths:
           kind: symbolInfo.kind,
           type: symbolInfo.type,
           location: JSON.stringify(symbolInfo.location),
-          documentation: symbolInfo.documentation || null,
+          documentation: symbolInfo.documentation ?? null,
           isExported: symbolInfo.isExported,
-          module: symbolInfo.module || null,
-          signature: symbolInfo.signature || null,
+          module: symbolInfo.module ?? null,
+          signature: symbolInfo.signature ?? null,
         });
       }
     }
@@ -231,7 +231,7 @@ ignored_paths:
         extends: typeInfo.extends ? JSON.stringify(typeInfo.extends) : null,
         implements: typeInfo.implements ? JSON.stringify(typeInfo.implements) : null,
         location: JSON.stringify(typeInfo.location),
-        documentation: typeInfo.documentation || null,
+        documentation: typeInfo.documentation ?? null,
         typeParameters: typeInfo.typeParameters ? JSON.stringify(typeInfo.typeParameters) : null,
       });
     }
@@ -455,6 +455,8 @@ ignored_paths:
         fs.readFile(cachePaths.projectInfo, 'utf8').then(content => JSON.parse(content) as ProjectConfig),
       ]);
 
+      this.logger.debug(`Loaded raw data: symbols=${symbolsData.length}, types=${typesData.length}, modules=${modulesData.length}`);
+
       // Convert back to Map structures
       const symbols = new Map<string, SymbolInfo[]>();
       const types = new Map<string, TypeInfo>();
@@ -463,54 +465,74 @@ ignored_paths:
 
       // Reconstruct symbols map
       for (const row of symbolsData) {
-        const symbolName = row.symbolName;
-        const symbolInfo: SymbolInfo = {
-          name: row.name,
-          kind: row.kind,
-          type: row.type,
-          location: JSON.parse(row.location),
-          documentation: row.documentation,
-          isExported: row.isExported,
-          module: row.module,
-          signature: row.signature,
-        };
+        try {
+          const symbolName = row.symbolName;
+          const symbolInfo: SymbolInfo = {
+            name: row.name,
+            kind: row.kind,
+            type: row.type,
+            location: JSON.parse(row.location),
+            documentation: row.documentation || undefined,
+            isExported: row.isExported,
+            module: row.module || undefined,
+            signature: row.signature || undefined,
+          };
 
-        if (!symbols.has(symbolName)) {
-          symbols.set(symbolName, []);
+          if (!symbols.has(symbolName)) {
+            symbols.set(symbolName, []);
+          }
+          symbols.get(symbolName)!.push(symbolInfo);
+        } catch (error) {
+          this.logger.error(`Failed to parse symbol row: ${JSON.stringify(row)}, error: ${error}`);
+          throw error;
         }
-        symbols.get(symbolName)!.push(symbolInfo);
       }
 
       // Reconstruct types map
       for (const row of typesData) {
-        const typeInfo: TypeInfo = {
-          name: row.name,
-          kind: row.kind,
-          properties: JSON.parse(row.properties),
-          methods: row.methods ? JSON.parse(row.methods) : undefined,
-          extends: row.extends ? JSON.parse(row.extends) : undefined,
-          implements: row.implements ? JSON.parse(row.implements) : undefined,
-          location: JSON.parse(row.location),
-          documentation: row.documentation,
-          typeParameters: row.typeParameters ? JSON.parse(row.typeParameters) : undefined,
-        };
-        types.set(row.typeName, typeInfo);
+        try {
+          const typeInfo: TypeInfo = {
+            name: row.name,
+            kind: row.kind,
+            properties: JSON.parse(row.properties),
+            methods: row.methods ? JSON.parse(row.methods) : undefined,
+            extends: row.extends ? JSON.parse(row.extends) : undefined,
+            implements: row.implements ? JSON.parse(row.implements) : undefined,
+            location: JSON.parse(row.location),
+            documentation: row.documentation || undefined,
+            typeParameters: row.typeParameters ? JSON.parse(row.typeParameters) : undefined,
+          };
+          types.set(row.typeName, typeInfo);
+        } catch (error) {
+          this.logger.error(`Failed to parse type row: ${JSON.stringify(row)}, error: ${error}`);
+          throw error;
+        }
       }
 
       // Reconstruct modules map
       for (const row of modulesData) {
-        const moduleInfo: ModuleInfo = {
-          path: row.path,
-          exports: JSON.parse(row.exports),
-          imports: JSON.parse(row.imports),
-          dependencies: JSON.parse(row.dependencies),
-        };
-        modules.set(row.modulePath, moduleInfo);
+        try {
+          const moduleInfo: ModuleInfo = {
+            path: row.path,
+            exports: JSON.parse(row.exports),
+            imports: JSON.parse(row.imports),
+            dependencies: JSON.parse(row.dependencies),
+          };
+          modules.set(row.modulePath, moduleInfo);
+        } catch (error) {
+          this.logger.error(`Failed to parse module row: ${JSON.stringify(row)}, error: ${error}`);
+          throw error;
+        }
       }
 
       // Reconstruct dependencies map
       for (const row of dependenciesData) {
-        dependencies.set(row.fromModule, JSON.parse(row.toModules));
+        try {
+          dependencies.set(row.fromModule, JSON.parse(row.toModules));
+        } catch (error) {
+          this.logger.error(`Failed to parse dependency row: ${JSON.stringify(row)}, error: ${error}`);
+          throw error;
+        }
       }
 
       const index: ProjectIndex = {
@@ -542,12 +564,41 @@ ignored_paths:
       // Create AsyncBuffer from file
       const file = await asyncBufferFromFile(filePath);
       const results: any[] = [];
+      let columns: string[] = [];
       
       // Read Parquet file using hyparquet
       await parquetRead({
         file,
-        onComplete: (data: any[]) => {
-          results.push(...data);
+        onComplete: (data: any[], metadata?: any) => {
+          // If we have metadata with column names, use it to convert arrays to objects
+          if (metadata && metadata.schema && data.length > 0) {
+            columns = metadata.schema.map((col: any) => col.name || col);
+          } else if (data.length > 0 && Array.isArray(data[0])) {
+            // Fallback: use positional mapping based on the write format
+            if (filePath.includes('symbols_v')) {
+              columns = ['symbolName', 'name', 'kind', 'type', 'location', 'documentation', 'isExported', 'module', 'signature'];
+            } else if (filePath.includes('types_v')) {
+              columns = ['typeName', 'name', 'kind', 'properties', 'methods', 'extends', 'implements', 'location', 'documentation', 'typeParameters'];
+            } else if (filePath.includes('modules_v')) {
+              columns = ['modulePath', 'path', 'exports', 'imports', 'dependencies'];
+            } else if (filePath.includes('dependencies_v')) {
+              columns = ['fromModule', 'toModules'];
+            }
+          }
+          
+          // Convert array data to object format if needed
+          if (columns.length > 0 && data.length > 0 && Array.isArray(data[0])) {
+            const objectData = data.map((row: any[]) => {
+              const obj: any = {};
+              columns.forEach((colName, index) => {
+                obj[colName] = row[index];
+              });
+              return obj;
+            });
+            results.push(...objectData);
+          } else {
+            results.push(...data);
+          }
         }
       });
       
