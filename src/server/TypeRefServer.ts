@@ -272,7 +272,7 @@ export class TypeRefServer {
 
   private async handleIndexProject(args: Record<string, any>): Promise<ProjectAnalysisResponse> {
     const { projectPath, force = false } = args;
-    this.logger.info(`Indexing project: ${projectPath}`);
+    this.logger.info(`Indexing project: ${projectPath} (force: ${force})`);
 
     try {
       const adapter = await this.getAdapterForProject(projectPath);
@@ -287,16 +287,17 @@ export class TypeRefServer {
         lastIndexed: index.lastIndexed,
       };
     } catch (error) {
-      this.logger.error(`Failed to index project ${projectPath}: ${error}`);
-      
-      // Return empty results for invalid project paths instead of throwing
+      this.logger.error(`Failed to index project ${projectPath}:`, error);
+
+      // Return error information instead of hiding it
       return {
-        success: true,
+        success: false,
         projectPath: projectPath,
         fileCount: 0,
         symbolCount: 0,
         typeCount: 0,
         lastIndexed: new Date(),
+        errors: [error instanceof Error ? `${error.message}\n${error.stack}` : String(error)],
       };
     }
   }
@@ -474,7 +475,7 @@ export class TypeRefServer {
       throw new Error('No TypeScript adapter available');
     }
     
-    // Initialize adapter for this project if not already initialized
+    // Initialize adapter once if not already initialized
     if (!(adapter as any).isInitialized) {
       await adapter.initialize(projectPath);
     }

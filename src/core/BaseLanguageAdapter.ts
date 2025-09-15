@@ -165,16 +165,19 @@ export abstract class BaseLanguageAdapter implements LanguageAdapter {
     // Check if file matches supported extensions
     const ext = this.getFileExtension(filePath);
     if (!this.config.fileExtensions.includes(ext)) {
+      this.logger.debug(`File excluded (extension): ${filePath} (ext: ${ext})`);
       return false;
     }
 
     // Check exclude patterns
     for (const pattern of this.config.excludePatterns) {
       if (this.matchesPattern(filePath, pattern)) {
+        this.logger.debug(`File excluded (pattern ${pattern}): ${filePath}`);
         return false;
       }
     }
 
+    this.logger.debug(`File included: ${filePath}`);
     return true;
   }
 

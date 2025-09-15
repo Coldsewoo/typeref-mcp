@@ -10,6 +10,7 @@ import * as fs from 'fs/promises';
 
 import { BaseLanguageAdapter } from '../core/BaseLanguageAdapter.js';
 import { ParquetCache } from '../core/ParquetCache.js';
+import { ProjectTemplate } from '../utils/ProjectTemplate.js';
 import {
   CacheManager,
   FileWatcher,
@@ -174,6 +175,48 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
     await this.parquetCache.clearProjectCache(projectPath);
   }
 
+  // Create project.yml configuration file
+  private async createProjectConfig(projectPath: string): Promise<void> {
+    const projectYmlPath = path.join(projectPath, 'project.yml');
+
+    try {
+      // Check if project.yml already exists
+      await fs.access(projectYmlPath);
+      this.logger.debug(`project.yml already exists at ${projectYmlPath}`);
+      return;
+    } catch {
+      // File doesn't exist, create it
+    }
+
+    try {
+      // Extract project name from path
+      const projectName = path.basename(projectPath);
+
+      // Read package.json if it exists to get version
+      let version = '1.0.0';
+      try {
+        const packageJsonPath = path.join(projectPath, 'package.json');
+        const packageJsonContent = await fs.readFile(packageJsonPath, 'utf8');
+        const packageJson = JSON.parse(packageJsonContent);
+        version = packageJson.version || '1.0.0';
+      } catch {
+        // No package.json or couldn't read it, use default version
+      }
+
+      // Generate project.yml
+      await ProjectTemplate.createProjectConfig(projectYmlPath, {
+        PROJECT_NAME: projectName,
+        VERSION: version,
+        CREATED_DATE: new Date().toISOString(),
+      });
+
+      this.logger.info(`Created project.yml at ${projectYmlPath}`);
+    } catch (error) {
+      this.logger.warn(`Failed to create project.yml at ${projectYmlPath}:`, error);
+      // Don't throw error - project.yml creation failure shouldn't stop indexing
+    }
+  }
+
   // Ensure project is loaded in memory, auto-load from disk cache if available
   private async ensureProjectLoaded(projectPath: string): Promise<void> {
     // If project already in memory, nothing to do
@@ -235,7 +278,10 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
       
       // Build project index
       const index = await this.buildProjectIndex(project, projectPath);
-      
+
+      // Create project.yml if it doesn't exist
+      await this.createProjectConfig(projectPath);
+
       // Save to Parquet cache
       await this.parquetCache.saveProjectIndex(index);
       
@@ -680,9 +726,18 @@ export class TypeScriptAdapter extends BaseLanguageAdapter {
     const modules = new Map<string, ModuleInfo>();
     const dependencies = new Map<string, string[]>();
 
-    const sourceFiles = project.getSourceFiles().filter(file => 
+    const allSourceFiles = project.getSourceFiles();
+    this.logger.info(`Found ${allSourceFiles.length} total source files in project`);
+
+    const sourceFiles = allSourceFiles.filter(file =>
       this.shouldIncludeFile(file.getFilePath())
     );
+
+    this.logger.info(`After filtering, ${sourceFiles.length} files will be indexed`);
+    if (sourceFiles.length === 0 && allSourceFiles.length > 0) {
+      this.logger.warn(`All ${allSourceFiles.length} source files were filtered out. Sample paths:`,
+        allSourceFiles.slice(0, 3).map(f => f.getFilePath()));
+    }
 
     for (const sourceFile of sourceFiles) {
       // Extract symbols

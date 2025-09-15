@@ -1,0 +1,244 @@
+# TypeRef MCP Project Configuration
+# TypeScript type inference and symbol navigation MCP server for Claude Code
+project_name: "sample-project"
+language: typescript
+version: "1.0.0"
+created: "2025-09-15T06:35:40.667Z"
+
+# Cache configuration
+cache:
+  format: parquet
+  compression: snappy
+  version: "1.0.0"
+
+# File patterns to ignore (follows .gitignore syntax)
+ignored_paths:
+  - "node_modules/**"
+  - "dist/**"
+  - "build/**"
+  - ".git/**"
+  - "coverage/**"
+  - "**/*.d.ts"
+
+# whether to use the project's gitignore file to ignore files
+ignore_all_files_in_gitignore: true
+
+# whether the project is in read-only mode
+# If set to true, all editing tools will be disabled and attempts to use them will result in an error
+read_only: false
+
+# Project description and capabilities
+description: |
+  TypeRef MCP is a Model Context Protocol server that provides TypeScript type inference,
+  symbol navigation, and intelligent code completion capabilities for Claude Code.
+
+  Key Features:
+  - Precise type inference at specific code positions
+  - Symbol search and navigation across projects
+  - Complete type definitions with properties and methods
+  - Module analysis (imports, exports, dependencies)
+  - Reference finding for symbols across the codebase
+  - TypeScript compiler diagnostics and error reporting
+  - Performance-optimized with Parquet caching system
+
+# Available MCP tools and their descriptions
+# Execute `npm run dev` to start the MCP server locally
+# Or use the published package: npx typeref-mcp
+tools:
+  index_project:
+    description: "Index a TypeScript project for type inference and symbol navigation. Must be called before other operations."
+    parameters:
+      - name: "projectPath"
+        type: "string"
+        required: true
+        description: "Absolute path to the TypeScript project root directory"
+      - name: "force"
+        type: "boolean"
+        required: false
+        default: false
+        description: "Force re-indexing even if project is already indexed"
+    example: |
+      index_project("/path/to/typescript/project")
+
+  get_type_inference:
+    description: "Get precise type information for a symbol at a specific position in a file"
+    parameters:
+      - name: "filePath"
+        type: "string"
+        required: true
+        description: "Absolute path to the TypeScript file"
+      - name: "position"
+        type: "number"
+        required: true
+        description: "Character position in the file (0-based)"
+      - name: "projectPath"
+        type: "string"
+        required: true
+        description: "Absolute path to the TypeScript project root"
+    example: |
+      get_type_inference("/project/src/index.ts", 245, "/project")
+
+  get_type_definition:
+    description: "Get complete definition of a type/interface with all properties and methods"
+    parameters:
+      - name: "typeName"
+        type: "string"
+        required: true
+        description: "Name of the type/interface to look up"
+      - name: "projectPath"
+        type: "string"
+        required: true
+        description: "Absolute path to the TypeScript project root"
+      - name: "contextFile"
+        type: "string"
+        required: false
+        description: "Optional: File path for context-aware type resolution"
+    example: |
+      get_type_definition("UserInterface", "/project", "/project/src/types.ts")
+
+  find_symbol:
+    description: "Find symbols by name with optional filtering and fuzzy matching"
+    parameters:
+      - name: "symbolName"
+        type: "string"
+        required: true
+        description: "Name of the symbol to search for"
+      - name: "projectPath"
+        type: "string"
+        required: true
+        description: "Absolute path to the TypeScript project root"
+      - name: "kind"
+        type: "string"
+        required: false
+        description: "Optional: Filter by symbol kind (variable, function, class, interface, type, enum, module, namespace, property, method, constructor, parameter)"
+      - name: "fuzzyMatch"
+        type: "boolean"
+        required: false
+        default: false
+        description: "Enable fuzzy matching for broader results"
+      - name: "includePrivate"
+        type: "boolean"
+        required: false
+        default: false
+        description: "Include non-exported symbols"
+      - name: "maxResults"
+        type: "number"
+        required: false
+        default: 20
+        description: "Maximum number of results to return"
+    example: |
+      find_symbol("getUserData", "/project", "function", true, false, 10)
+
+  find_references:
+    description: "Find all references to a symbol across the project"
+    parameters:
+      - name: "symbolName"
+        type: "string"
+        required: true
+        description: "Name of the symbol to find references for"
+      - name: "filePath"
+        type: "string"
+        required: true
+        description: "File path where the symbol is defined"
+      - name: "projectPath"
+        type: "string"
+        required: true
+        description: "Absolute path to the TypeScript project root"
+    example: |
+      find_references("MyComponent", "/project/src/components/MyComponent.tsx", "/project")
+
+  get_available_symbols:
+    description: "Get symbols available in a specific context/scope"
+    parameters:
+      - name: "filePath"
+        type: "string"
+        required: true
+        description: "Absolute path to the TypeScript file"
+      - name: "position"
+        type: "number"
+        required: true
+        description: "Character position in the file for context"
+      - name: "projectPath"
+        type: "string"
+        required: true
+        description: "Absolute path to the TypeScript project root"
+    example: |
+      get_available_symbols("/project/src/index.ts", 150, "/project")
+
+  get_module_info:
+    description: "Get module exports, imports, and dependencies"
+    parameters:
+      - name: "modulePath"
+        type: "string"
+        required: true
+        description: "Absolute path to the module file"
+      - name: "projectPath"
+        type: "string"
+        required: true
+        description: "Absolute path to the TypeScript project root"
+    example: |
+      get_module_info("/project/src/utils/helpers.ts", "/project")
+
+  search_types:
+    description: "Search for types/interfaces by name or characteristics"
+    parameters:
+      - name: "query"
+        type: "string"
+        required: true
+        description: "Search query for type names"
+      - name: "projectPath"
+        type: "string"
+        required: true
+        description: "Absolute path to the TypeScript project root"
+      - name: "kind"
+        type: "string"
+        required: false
+        description: "Optional: Filter by type kind (primitive, object, array, function, union, intersection, generic, conditional, mapped, template, tuple, unknown)"
+      - name: "maxResults"
+        type: "number"
+        required: false
+        default: 20
+        description: "Maximum number of results to return"
+    example: |
+      search_types("User", "/project", "interface", 10)
+
+  get_diagnostics:
+    description: "Get TypeScript compiler diagnostics (errors, warnings) for a file"
+    parameters:
+      - name: "filePath"
+        type: "string"
+        required: true
+        description: "Absolute path to the TypeScript file"
+      - name: "projectPath"
+        type: "string"
+        required: true
+        description: "Absolute path to the TypeScript project root"
+    example: |
+      get_diagnostics("/project/src/index.ts", "/project")
+
+  batch_type_analysis:
+    description: "Perform type analysis on multiple symbols at once for better performance"
+    parameters:
+      - name: "requests"
+        type: "array"
+        required: true
+        description: "Array of analysis requests to process"
+      - name: "projectPath"
+        type: "string"
+        required: true
+        description: "Absolute path to the TypeScript project root"
+    example: |
+      batch_type_analysis([
+        {"type": "type_inference", "params": {"filePath": "/project/src/index.ts", "position": 100}},
+        {"type": "symbol_search", "params": {"symbolName": "MyType"}}
+      ], "/project")
+
+  clear_project_cache:
+    description: "Clear the disk cache for a specific project to force re-indexing"
+    parameters:
+      - name: "projectPath"
+        type: "string"
+        required: true
+        description: "Absolute path to the TypeScript project root directory"
+    example: |
+      clear_project_cache("/project")
