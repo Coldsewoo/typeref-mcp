@@ -8,7 +8,13 @@
     "type-inference",
     "symbol-navigation",
     "intellisense",
-    "claude-code"
+    "claude-code",
+    "superclaude",
+    "ai-development",
+    "type-analysis",
+    "code-intelligence",
+    "refactoring",
+    "architecture"
   ],
   "type": "module",
   "main": "dist/index.js",

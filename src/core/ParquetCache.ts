@@ -13,6 +13,7 @@ import { asyncBufferFromFile } from 'hyparquet';
 import { parquetWriteFile } from 'hyparquet-writer';
 import { ProjectIndex, SymbolInfo, TypeInfo, ModuleInfo } from '../types.js';
 import { Logger } from '../interfaces.js';
+import { ProjectTemplate } from '../utils/ProjectTemplate.js';
 
 export interface ProjectCacheMetadata {
   projectPath: string;
@@ -86,32 +87,16 @@ export class ParquetCache {
     // Create project.yml
     const projectName = path.basename(projectPath);
     const projectConfigPath = path.join(typerefDir, 'project.yml');
-    const projectConfig = `# TypeRef MCP Project Configuration
-project_name: "${projectName}"
-language: typescript
-version: "${this.CACHE_VERSION}"
-created: "${new Date().toISOString()}"
-
-# Cache configuration
-cache:
-  format: parquet
-  compression: snappy
-  version: "${this.CACHE_VERSION}"
-
-# File patterns to ignore (follows .gitignore syntax)
-ignored_paths:
-  - "node_modules/**"
-  - "dist/**" 
-  - "build/**"
-  - ".git/**"
-  - "coverage/**"
-  - "**/*.d.ts"
-`;
 
     try {
       await fs.access(projectConfigPath);
     } catch {
-      await fs.writeFile(projectConfigPath, projectConfig);
+      // Generate project.yml from template
+      await ProjectTemplate.createProjectConfig(projectConfigPath, {
+        PROJECT_NAME: projectName,
+        VERSION: this.CACHE_VERSION,
+        CREATED_DATE: new Date().toISOString()
+      });
     }
 
     this.logger.info(`Initialized TypeRef project structure at ${typerefDir}`);
